@@ -1,103 +1,178 @@
-🚀 Universal CI/CD Playbook (Monorepo, Low-Resource Servers, Real-World Constraints)
+#  Universal CI/CD Playbook (A–Z)
 
-Author: Uzair
-Use Case: Any future backend + frontend project
-Tested Against:
+> **Author:** Uzair
+> **Purpose:** General‑purpose CI/CD reference for all future projects
+> **Scope:** Backend + Frontend, Docker / Non‑Docker, Low‑disk servers, Restricted SSH
 
-Restricted servers (office-only, locked-down)
+---
 
-Low disk (5–10GB)
+##  Core Principles (Non‑Negotiable)
 
-Docker + Non-Docker setups
+1. **CI validates code, CD deploys code**
+2. **Never build frontend on low‑disk production servers**
+3. **Never assume Docker is installed**
+4. **Never assume SSH is publicly accessible**
+5. **Uploads ≠ Source code**
+6. **Always check disk before debugging anything else**
 
-React / Angular / Express
+---
 
-GitHub Actions + SSH deploy
+##  Standard Repository Structure
 
-📌 Core Principles (READ THIS FIRST)
-
-CI ≠ CD
-
-CI = validate code
-
-CD = deploy code
-
-Never build frontend on small servers
-
-Never assume Docker exists
-
-Never assume SSH is open
-
-Disk space matters more than config
-
-Production servers should RUN code, not BUILD code
-
-🧱 Standard Repo Structure (Monorepo)
+```
 repo/
-├── api.project.com/        # Backend (Node / Express)
-│   └── Dockerfile          # Optional
-├── admin.project.com/      # Frontend (React / Angular)
+├── backend/
+│   └── Dockerfile (optional)
+├── frontend/
+│   └── dist/ (generated in CI)
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml
 │       └── deploy.yml
+```
 
-🌿 Branch Strategy (Simple & Safe)
-dev   → all developers work here
-main  → production only
+---
 
-Rules
+##  Branch Strategy
 
-CI runs on:
+```
+dev   → development
+main  → production
+```
 
-push to dev
+* CI runs on `dev`
+* CI runs on PR → `main`
+* CD runs **only** on `main`
 
-pull_request → main
+---
 
-CD runs ONLY on:
+#  SSH KEY MANAGEMENT (FULL FLOW)
 
-push to main (after merge)
+This section is **critical** and was missing before.
 
-🔐 SSH: A–Z Setup & Verification
-1️⃣ Generate SSH key (LOCAL machine)
-ssh-keygen -t ed25519 -C "github-actions-project"
+---
 
-2️⃣ Add public key to server
+##  OPTION A: Generate SSH Key **ON SERVER** (Recommended for Deploy Keys)
+
+### 1️ Login to server
+
+```bash
+ssh ubuntu@SERVER_IP
+```
+
+---
+
+### 2️ Generate SSH key on server
+
+```bash
+ssh-keygen -t ed25519 -C "github-deploy"
+```
+
+Press **Enter** for default path:
+
+```
+/home/ubuntu/.ssh/id_ed25519
+```
+
+(No passphrase recommended for CI)
+
+---
+
+### 3️ Verify keys
+
+```bash
+ls ~/.ssh
+cat ~/.ssh/id_ed25519.pub
+```
+
+You will see something like:
+
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... github-deploy
+```
+
+---
+
+### 4️ Add PUBLIC key to GitHub **Deploy Keys**
+
+📍 GitHub Repo → **Settings** → **Deploy Keys** → **Add deploy key**
+
+* Title: `prod-server-key`
+* Paste **id_ed25519.pub**
+* ✅ Check **Allow write access** (required for pull)
+
+---
+
+### 5️ Test GitHub access from server
+
+```bash
+ssh -T git@github.com
+```
+
+✅ Expected:
+
+```
+Hi <username>! You've successfully authenticated...
+```
+
+❌ If you get `Permission denied (publickey)` → key not added correctly
+
+---
+
+##  OPTION B: GitHub Actions → Server (CI/CD Push)
+
+### 1️ Generate key LOCALLY or in CI machine
+
+```bash
+ssh-keygen -t ed25519 -C "github-actions"
+```
+
+---
+
+### 2️ Add PUBLIC key to server
+
+```bash
 nano ~/.ssh/authorized_keys
+```
+
+Paste public key
+
+Set permissions:
+
+```bash
 chmod 700 ~/.ssh
 chmod 600 ~/.ssh/authorized_keys
+```
 
-3️⃣ Add private key to GitHub Secrets
+---
+
+### 3️ Add PRIVATE key to GitHub Secrets
+
+GitHub → Repo → Settings → Secrets → Actions
+
+```
 SSH_PRIVATE_KEY
 SSH_HOST
 SSH_USER
+```
 
-4️⃣ Verify SSH connectivity (IMPORTANT)
+---
 
-From GitHub runner OR local:
+### 4️ Verify SSH from GitHub runner
 
-ssh ubuntu@SERVER_IP
+```yaml
+- name: Test SSH
+  run: ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "echo ok"
+```
 
+---
 
-❌ If timeout → server is restricted
-✔️ If connects → usable
+##  CI WORKFLOW (ci.yml)
 
-🔍 SSH TROUBLESHOOTING MATRIX
-Symptom	Meaning	Fix
-i/o timeout	Port 22 blocked	Use self-hosted runner or internal network
-Permission denied (publickey)	Key mismatch	Check correct private key in secrets
-Host key verification failed	known_hosts missing	ssh-keyscan github.com >> ~/.ssh/known_hosts
-Works in Termius but not GitHub	Office-only access	❌ GitHub Actions cannot reach server
-🧪 CI WORKFLOW (ci.yml)
-Purpose
+Purpose: **Build + Validate only**
 
-Ensure code builds
-
-Block bad PRs
-
-NO deployment
-
-name: CI - Verify Builds
+```yaml
+name: CI
 
 on:
   push:
@@ -106,146 +181,128 @@ on:
     branches: [main]
 
 jobs:
-  backend:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - working-directory: api.project.com
+        with:
+          node-version: 20
+
+      - name: Backend
+        working-directory: backend
         run: npm ci
 
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - working-directory: admin.project.com
+      - name: Frontend
+        working-directory: frontend
         run: |
           npm ci
           npm run build
+```
 
-Angular NOTE
-npm ci
-npm run build
-# OR
-npx ng build --configuration production
+---
 
-🚀 CD WORKFLOW (deploy.yml)
-Runs ONLY on main
-🧠 Deployment Decision Tree (VERY IMPORTANT)
-❓ Does server have:
-Condition	Decision
-< 15GB disk	❌ No Docker builds
-SSH blocked externally	❌ No GitHub Actions deploy
-Docker missing	Install or skip Docker
-Angular frontend	Build on GitHub, not server
-✅ RECOMMENDED DEPLOY STRATEGY (LOW DISK)
-✔ Build frontend on GitHub
-✔ Rsync dist/ to /var/www/html
-✔ Backend:
+##  CD WORKFLOW (deploy.yml)
 
-Docker OR
+Runs **ONLY** on `main`
 
-Node + PM2
+### Strategy
 
-🐳 Docker Rules (Learned the hard way)
-NEVER do this on small servers:
-docker pull big-image
-npm ci
-npm run build
+* Build frontend in CI
+* Rsync `dist/` to server
+* Restart backend service
 
-ALWAYS clean Docker
-docker system prune -af --volumes
+---
 
-Prevent disk death
-docker system prune -f --filter "until=168h"
+##  Server Disk Reality Check
 
-🧹 Disk Space Survival Checklist
-Check space
+### Always run BEFORE deploy
+
+```bash
 df -h
+```
 
-Biggest culprits
+If `/` > 85% → STOP
+
+---
+
+### Identify disk hogs
+
+```bash
 sudo du -h --max-depth=1 /var | sort -hr
+```
 
-Clean logs (CRITICAL)
+---
+
+### Emergency cleanup
+
+```bash
 sudo journalctl --vacuum-size=50M
-
-Remove junk
-rm -rf node_modules dist
-npm cache clean --force
 sudo apt clean
+rm -rf node_modules dist
+```
 
-📦 Uploads Folder (IMPORTANT DECISION)
-❌ DO NOT include uploads in repo
-✔ Uploads must live on server only
+---
 
-Add to .gitignore:
+##  Docker Rules (Low Disk Servers)
 
+❌ Do NOT pull large images
+❌ Do NOT build frontend in Docker
+
+✔ If Docker used:
+
+```bash
+docker system prune -af --volumes
+```
+
+---
+
+##  Uploads Folder Rule
+
+* ❌ Never commit uploads
+* ❌ Never deploy uploads via CI/CD
+
+`.gitignore`
+
+```
 uploads/
 public/uploads/
+```
 
+Uploads live **only on server**
 
-Reason:
+---
 
-CI/CD overwrites code
+##  Common Errors & Meaning
 
-Uploads = runtime data
+| Error                         | Real Cause           |
+| ----------------------------- | -------------------- |
+| no space left                 | Disk full            |
+| Permission denied (publickey) | Wrong key            |
+| Host key verification failed  | known_hosts missing  |
+| docker: no space              | /var/lib/docker full |
 
-🌐 Nginx Compatibility (SAFE)
+---
 
-Your existing config:
+##  Final Golden Rules
 
-root /var/www/html;
-location /api/ {
-  proxy_pass http://localhost:3000;
-}
+1. SSH first, CI second
+2. Disk first, Docker later
+3. Build frontend in CI, not prod
+4. Uploads are runtime data
+5. Simpler pipeline = fewer outages
 
+---
 
-✔ No conflict with CI/CD
-✔ Rsync to /var/www/html is SAFE
-✔ Backend stays untouched
+## ✅ Pre‑Project Checklist
 
-🧨 Common Errors & REAL Meanings
-Error	Actual Reason
-no space left on device	Disk full (not Docker bug)
-address already in use	Old container still running
-ng: command not found	Angular CLI not installed
-docker: command not found	Docker not installed
-Permission denied (publickey)	Wrong SSH key
-Host key verification failed	Missing known_hosts
-🧩 Golden Rules (Print These)
+* [ ] Disk size checked
+* [ ] SSH verified
+* [ ] Deploy keys added
+* [ ] Uploads ignored
+* [ ] CI tested
+* [ ] CD dry‑run done
 
-CI builds, CD deploys
+---
 
-Never build frontend on prod
-
-Always check disk before debugging
-
-SSH first, CI later
-
-Uploads are not source code
-
-Small servers need simple setups
-
-🏁 Final Recommendation (Based on 3 Projects)
-Scenario	Best Setup
-Restricted server	Self-hosted runner
-Low disk (<10GB)	No Docker
-Angular/React	Build on GitHub
-Express backend	PM2 or light Docker
-Office-only access	Internal CI
-📎 Future Use Checklist (Before Any New Project)
-
- Check disk size
-
- Check SSH accessibility
-
- Decide Docker or not
-
- Separate uploads
-
- CI first, CD later
-
- Logs cleanup enabled
+**This document is production‑tested.**
