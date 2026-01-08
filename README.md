@@ -1,178 +1,185 @@
-#  Universal CI/CD Playbook (A–Z)
+# 🚀 Universal CI/CD Playbook (Reusable & Public-Safe)
 
-> **Author:** Uzair
-> **Purpose:** General‑purpose CI/CD reference for all future projects
-> **Scope:** Backend + Frontend, Docker / Non‑Docker, Low‑disk servers, Restricted SSH
-
----
-
-##  Core Principles (Non‑Negotiable)
-
-1. **CI validates code, CD deploys code**
-2. **Never build frontend on low‑disk production servers**
-3. **Never assume Docker is installed**
-4. **Never assume SSH is publicly accessible**
-5. **Uploads ≠ Source code**
-6. **Always check disk before debugging anything else**
+> **Maintainer:** Uzair  
+> **Audience:** Future me + team members  
+> **Goal:** One CI/CD reference usable across **all projects** without leaking secrets  
+> **Works with:** Angular, React, Vue, Node, Docker / Non-Docker
 
 ---
 
-##  Standard Repository Structure
+## 🧠 Core Rules (Do Not Break)
 
+1. **CI = verify & build**
+2. **CD = deploy only**
+3. **Production servers never build frontend**
+4. **SSH access must be verified explicitly**
+5. **Disk issues come before code issues**
+6. **Uploads are runtime data, not code**
+
+---
+
+## 🌿 Branch Strategy (Standardized)
+
+```text
+dev   → development branch
+main  → production branch
 ```
-repo/
-├── backend/
-│   └── Dockerfile (optional)
-├── frontend/
-│   └── dist/ (generated in CI)
+
+| Action | Branch |
+|--------|--------|
+| Feature work | dev |
+| CI runs | dev, PR → main |
+| Deployment | main ONLY |
+
+- ❌ No CD on dev
+- ❌ No CD on PR
+- ✅ Merge to main = deploy
+
+---
+
+## 📁 Repository Layout (Generic)
+
+```text
+project-root/
+├── backend/                # API / Server
+│   └── src/
+├── frontend/               # Angular / React / Vue
+│   ├── src/
+│   └── dist/               # Generated in CI
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml
 │       └── deploy.yml
+└── README.md
 ```
 
 ---
 
-##  Branch Strategy
+## 🌐 SERVER ACCESS PRE-CHECK (MANDATORY)
 
-```
-dev   → development
-main  → production
-```
-
-* CI runs on `dev`
-* CI runs on PR → `main`
-* CD runs **only** on `main`
-
----
-
-#  SSH KEY MANAGEMENT (FULL FLOW)
-
-This section is **critical** and was missing before.
-
----
-
-##  OPTION A: Generate SSH Key **ON SERVER** (Recommended for Deploy Keys)
-
-### 1️ Login to server
+### 1. Check if server is reachable
 
 ```bash
-ssh ubuntu@SERVER_IP
+ping <SERVER_IP>
+nc -zv <SERVER_IP> 22
 ```
 
----
+If port 22 fails → SSH is restricted (firewall / security group).
 
-### 2️ Generate SSH key on server
+### 2. If firewall exists, allow SSH + GitHub traffic
 
 ```bash
-ssh-keygen -t ed25519 -C "github-deploy"
+sudo ufw allow ssh
+sudo ufw reload
 ```
 
-Press **Enter** for default path:
-
-```
-/home/ubuntu/.ssh/id_ed25519
-```
-
-(No passphrase recommended for CI)
+If cloud firewall → allow GitHub Actions IP ranges manually.
 
 ---
 
-### 3️ Verify keys
+## 🔑 SSH KEY STRATEGY (REUSABLE & PROJECT-SAFE)
+
+❗ **DO NOT reuse one key name for all projects**  
+Each project must have its own identity, not `github-actions`.
+
+### 🔐 Naming Convention (IMPORTANT)
+
+Use project-specific naming:
+
+```text
+<project-name>-deploy
+<project-name>-ci
+```
+
+**Examples:**
+- `growth-frontend-deploy`
+- `crm-backend-ci`
+
+---
+
+### OPTION A — SERVER → GITHUB (Deploy Keys)
+
+Recommended when server pulls code or artifacts
+
+**1. Login to server**
 
 ```bash
-ls ~/.ssh
-cat ~/.ssh/id_ed25519.pub
+ssh <SERVER_USER>@<SERVER_IP>
 ```
 
-You will see something like:
+**2. Generate project-specific key**
+
+```bash
+ssh-keygen -t ed25519 -C "<PROJECT_NAME>-deploy"
+```
+
+Press ENTER for default path.
+
+**3. Add PUBLIC key to GitHub**
 
 ```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... github-deploy
+Repo → Settings → Deploy Keys
+Title: <PROJECT_NAME>-server-key
+✔ Allow write access
 ```
 
----
-
-### 4️ Add PUBLIC key to GitHub **Deploy Keys**
-
-📍 GitHub Repo → **Settings** → **Deploy Keys** → **Add deploy key**
-
-* Title: `prod-server-key`
-* Paste **id_ed25519.pub**
-* ✅ Check **Allow write access** (required for pull)
-
----
-
-### 5️ Test GitHub access from server
+**4. Test from server**
 
 ```bash
 ssh -T git@github.com
 ```
 
-✅ Expected:
+Expected:
 
+```text
+You've successfully authenticated
 ```
-Hi <username>! You've successfully authenticated...
-```
-
-❌ If you get `Permission denied (publickey)` → key not added correctly
 
 ---
 
-##  OPTION B: GitHub Actions → Server (CI/CD Push)
+### OPTION B — GITHUB ACTIONS → SERVER (Most Used)
 
-### 1️ Generate key LOCALLY or in CI machine
+**1. Generate key (locally or temp machine)**
 
 ```bash
-ssh-keygen -t ed25519 -C "github-actions"
+ssh-keygen -t ed25519 -C "<PROJECT_NAME>-ci"
 ```
 
----
-
-### 2️ Add PUBLIC key to server
+**2. Add PUBLIC key to server**
 
 ```bash
 nano ~/.ssh/authorized_keys
-```
-
-Paste public key
-
-Set permissions:
-
-```bash
 chmod 700 ~/.ssh
 chmod 600 ~/.ssh/authorized_keys
 ```
 
----
+**3. Add PRIVATE key to GitHub Secrets**
 
-### 3️ Add PRIVATE key to GitHub Secrets
-
-GitHub → Repo → Settings → Secrets → Actions
-
-```
-SSH_PRIVATE_KEY
-SSH_HOST
-SSH_USER
+```text
+SSH_PRIVATE_KEY   = <PRIVATE KEY CONTENT>
+SSH_HOST          = <SERVER_IP>
+SSH_USER          = <SERVER_USER>
+DEPLOY_PATH       = /var/www/<PROJECT_NAME>
 ```
 
+⚠ **Never commit secrets.**
+
 ---
 
-### 4️ Verify SSH from GitHub runner
+## ⚙️ CI WORKFLOW (Generic but Real)
+
+### Purpose
+
+- Install dependencies
+- Validate builds
+- Fail fast
+- No SSH
+- No deploy
+
+### Example CI (`.github/workflows/ci.yml`)
 
 ```yaml
-- name: Test SSH
-  run: ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "echo ok"
-```
-
----
-
-##  CI WORKFLOW (ci.yml)
-
-Purpose: **Build + Validate only**
-
-```yaml
-name: CI
+name: CI – Verify Builds
 
 on:
   push:
@@ -181,128 +188,171 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  backend:
+    name: Backend check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Backend
-        working-directory: backend
+      - working-directory: <BACKEND_PATH>
         run: npm ci
 
-      - name: Frontend
-        working-directory: frontend
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - working-directory: <FRONTEND_PATH>
         run: |
           npm ci
           npm run build
 ```
 
----
-
-##  CD WORKFLOW (deploy.yml)
-
-Runs **ONLY** on `main`
-
-### Strategy
-
-* Build frontend in CI
-* Rsync `dist/` to server
-* Restart backend service
+🔁 **Replace:**
+- `<BACKEND_PATH>` → e.g. `api.project.com`
+- `<FRONTEND_PATH>` → e.g. `admin.project.com`
 
 ---
 
-##  Server Disk Reality Check
+## 🚀 CD WORKFLOW (Growth-Style, Safe & Clean)
 
-### Always run BEFORE deploy
+### Rules
+
+- Runs only on main
+- Uses SSH
+- No builds
+- Deploys already built files
+
+### Example CD (`.github/workflows/deploy.yml`)
+
+```yaml
+name: CD – Deploy to Server
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts
+
+      - name: Deploy frontend build
+        run: |
+          rsync -avz --delete \
+          <FRONTEND_BUILD_PATH>/ \
+          $SSH_USER@$SSH_HOST:$DEPLOY_PATH
+```
+
+🔁 **Replace:**
+- `<FRONTEND_BUILD_PATH>` → `frontend/dist/<project-name>`
+
+---
+
+## 📦 BUILD OUTPUT VERIFICATION (CRITICAL)
+
+### Angular
+
+```text
+dist/<project-name>/
+  ├── index.html
+  ├── assets/
+```
+
+### React / Vue
+
+```text
+dist/
+  ├── index.html
+  ├── assets/
+```
+
+- ❌ Never deploy the parent dist incorrectly
+- ❌ Never deploy `dist/<project>` folder itself unless nginx expects it
+
+---
+
+## 💾 SERVER DISK MANAGEMENT
+
+### Check disk
 
 ```bash
 df -h
 ```
 
-If `/` > 85% → STOP
+❌ If `/` > 85% → **STOP**
 
----
-
-### Identify disk hogs
+### Reclaim space
 
 ```bash
-sudo du -h --max-depth=1 /var | sort -hr
-```
-
----
-
-### Emergency cleanup
-
-```bash
-sudo journalctl --vacuum-size=50M
 sudo apt clean
+sudo journalctl --vacuum-size=100M
 rm -rf node_modules dist
-```
-
----
-
-##  Docker Rules (Low Disk Servers)
-
-❌ Do NOT pull large images
-❌ Do NOT build frontend in Docker
-
-✔ If Docker used:
-
-```bash
 docker system prune -af --volumes
 ```
 
 ---
 
-##  Uploads Folder Rule
+## 📁 UPLOADS RULE (ABSOLUTE)
 
-* ❌ Never commit uploads
-* ❌ Never deploy uploads via CI/CD
+**Uploads are runtime data.**
 
-`.gitignore`
-
-```
+```gitignore
 uploads/
 public/uploads/
 ```
 
-Uploads live **only on server**
+- ❌ Never commit
+- ❌ Never deploy
+- ❌ Never delete in CI/CD
 
 ---
 
-##  Common Errors & Meaning
+## ⚠️ MERGE CONFLICT MARKERS
 
-| Error                         | Real Cause           |
-| ----------------------------- | -------------------- |
-| no space left                 | Disk full            |
-| Permission denied (publickey) | Wrong key            |
-| Host key verification failed  | known_hosts missing  |
-| docker: no space              | /var/lib/docker full |
+```text
+<<<<<<< branchA
+=======
+>>>>>>> branchB
+```
 
----
+**Meaning:**
+- Same lines modified in both branches
+- Must be resolved manually
 
-##  Final Golden Rules
-
-1. SSH first, CI second
-2. Disk first, Docker later
-3. Build frontend in CI, not prod
-4. Uploads are runtime data
-5. Simpler pipeline = fewer outages
+❌ **Never deploy unresolved conflicts**
 
 ---
 
-## ✅ Pre‑Project Checklist
+## ✅ PRE-DEPLOY CHECKLIST
 
-* [ ] Disk size checked
-* [ ] SSH verified
-* [ ] Deploy keys added
-* [ ] Uploads ignored
-* [ ] CI tested
-* [ ] CD dry‑run done
+- [ ] SSH access verified
+- [ ] Disk space OK
+- [ ] Secrets added
+- [ ] CI passing
+- [ ] Correct build folder
+- [ ] Nginx root verified
 
 ---
 
-**This document is production‑tested.**
+## 🏁 FINAL RULES
+
+1. **Disk → SSH → CI → CD**
+2. **CI builds, CD deploys**
+3. **Server never compiles frontend**
+4. **Every project has its own identity**
+5. **Public repo = zero secrets**
